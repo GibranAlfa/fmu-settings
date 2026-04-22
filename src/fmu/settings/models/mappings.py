@@ -11,6 +11,7 @@ from fmu.datamodels.context.mappings import (
     MappingType,
     RelationType,
     StratigraphyMappings,
+    WellboreMappings,
 )
 
 
@@ -22,9 +23,10 @@ class Mappings(BaseModel):
     )
     """Stratigraphy mappings in the mappings file."""
 
-    # Todo: Add wells model
-    wells: list[Any] = Field(default_factory=list)
-    """Well mappings in the mappings file."""
+    wellbore: WellboreMappings = Field(
+        default_factory=lambda: WellboreMappings(root=[])
+    )
+    """Wellbore mappings in the mappings file."""
 
 
 class MappingGroup(BaseModel):

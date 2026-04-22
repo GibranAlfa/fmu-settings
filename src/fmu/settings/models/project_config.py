@@ -54,10 +54,13 @@ class RmsHorizon(BaseModel):
 
 
 class RmsWell(BaseModel):
-    """A well from an RMS project."""
+    """A well from an RMS project with added metadata."""
 
     name: str
     """Name of the well."""
+
+    planned: bool = False
+    """Whether the well is planned."""
 
 
 class RmsProject(BaseModel):

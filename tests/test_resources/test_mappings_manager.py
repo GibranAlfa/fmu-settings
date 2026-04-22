@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 import pytest
 from fmu.datamodels.context.mappings import (
     DataSystem,
+    MappingType,
     RelationType,
     StratigraphyIdentifierMapping,
     StratigraphyMappings,
+    WellboreIdentifierMapping,
+    WellboreMappings,
 )
 
 from fmu.settings._drogon import GLOBAL_CONFIG_STRATIGRAPHY
@@ -21,6 +24,25 @@ from fmu.settings.models.mappings import Mappings
 if TYPE_CHECKING:
     from fmu.settings.models.change_info import ChangeInfo
     from fmu.settings.models.log import Log
+
+
+@pytest.fixture
+def wellbore_mappings() -> WellboreMappings:
+    """Returns a valid WellboreMappings object."""
+    return WellboreMappings(
+        root=[
+            WellboreIdentifierMapping(
+                source_system=DataSystem.rms,
+                target_system=DataSystem.simulator,
+                mapping_type=MappingType.wellbore,
+                relation_type=RelationType.primary,
+                source_id="30_9-B-43_A",
+                source_uuid=None,
+                target_id="B43A",
+                target_uuid=None,
+            )
+        ]
+    )
 
 
 @pytest.fixture
@@ -138,6 +160,62 @@ def test_mappings_manager_update_stratigraphy_mappings_writes_to_changelog(
     assert len(mappings_manager.fmu_dir._changelog.load()) == expected_no_of_mappings
 
 
+def test_mappings_manager_update_wellbore_mappings_overwrites_mappings(
+    fmu_dir: ProjectFMUDirectory,
+    wellbore_mappings: WellboreMappings,
+) -> None:
+    """Tests that updating wellbore mappings overwrites existing mappings."""
+    mappings_manager: MappingsManager = MappingsManager(fmu_dir)
+    assert mappings_manager.exists is False
+
+    mappings_manager.update_wellbore_mappings(wellbore_mappings)
+    assert mappings_manager.exists is True
+    mappings = mappings_manager.load()
+    assert len(mappings.wellbore) == 1
+    assert mappings.wellbore[0] == wellbore_mappings[0]
+
+    new_mapping = WellboreIdentifierMapping(
+        source_system=DataSystem.rms,
+        target_system=DataSystem.simulator,
+        mapping_type=MappingType.wellbore,
+        relation_type=RelationType.primary,
+        source_id="30_9-B-43_B",
+        source_uuid=None,
+        target_id="B43B",
+        target_uuid=None,
+    )
+
+    mappings_manager.update_wellbore_mappings(WellboreMappings(root=[new_mapping]))
+
+    # Assert that existing mappings are overwritten
+    mappings = mappings_manager.load()
+    assert len(mappings.wellbore) == 1
+    assert mappings.wellbore[0] == new_mapping
+
+
+def test_mappings_manager_update_wellbore_mappings_writes_to_changelog(
+    fmu_dir: ProjectFMUDirectory,
+    wellbore_mappings: WellboreMappings,
+) -> None:
+    """Tests that each update of the wellbore mappings writes to the changelog."""
+    mappings_manager: MappingsManager = MappingsManager(fmu_dir)
+
+    mappings_manager.update_wellbore_mappings(wellbore_mappings)
+
+    changelog: Log[ChangeInfo] = mappings_manager.fmu_dir._changelog.load()
+    assert len(changelog) == 1
+    assert changelog[0].change_type == ChangeType.update
+    assert changelog[0].file == "mappings.json"
+    assert changelog[0].key == "wellbore"
+    assert f"New value: {wellbore_mappings.model_dump()}" in changelog[0].change
+
+    mappings_manager.update_wellbore_mappings(wellbore_mappings)
+    mappings_manager.update_wellbore_mappings(wellbore_mappings)
+
+    expected_no_of_mappings = 3
+    assert len(mappings_manager.fmu_dir._changelog.load()) == expected_no_of_mappings
+
+
 def test_mappings_manager_diff(
     fmu_dir: ProjectFMUDirectory,
     extra_fmu_dir: ProjectFMUDirectory,
@@ -203,6 +281,7 @@ def test_mappings_manager_merge_mappings(
     fmu_dir: ProjectFMUDirectory,
     extra_fmu_dir: ProjectFMUDirectory,
     stratigraphy_mappings: StratigraphyMappings,
+    wellbore_mappings: WellboreMappings,
 ) -> None:
     """Tests that mappings from the incoming resource will overwrite current mappings.
 
@@ -220,7 +299,7 @@ def test_mappings_manager_merge_mappings(
 
     assert len(updated_mappings.stratigraphy) == 0
     assert updated_mappings.stratigraphy == mappings_manager.stratigraphy_mappings
-    assert len(updated_mappings.wells) == 0
+    assert len(updated_mappings.wellbore) == 0
 
     mappings_manager.update_stratigraphy_mappings(stratigraphy_mappings)
     expected_no_of_mappings = 3
@@ -247,19 +326,17 @@ def test_mappings_manager_merge_mappings(
         == new_mappings_manager.stratigraphy_mappings
     )
 
-    mappings = mappings_manager.load()
-    mappings.wells = ["test"]
-    mappings_manager.save(mappings)
-    assert mappings.wells == ["test"]
-
-    new_mappings_manager.save(Mappings())
-    with pytest.raises(NotImplementedError):
-        updated_mappings = mappings_manager.merge_mappings(new_mappings_manager)
+    new_mappings_manager.update_wellbore_mappings(wellbore_mappings)
+    updated_mappings = mappings_manager.merge_mappings(new_mappings_manager)
+    assert updated_mappings.wellbore == mappings_manager.wellbore_mappings
+    assert mappings_manager.wellbore_mappings == new_mappings_manager.wellbore_mappings
+    assert len(updated_mappings.wellbore) == 1
 
 
 def test_mappings_manager_merge_changes(
     fmu_dir: ProjectFMUDirectory,
     stratigraphy_mappings: StratigraphyMappings,
+    wellbore_mappings: WellboreMappings,
 ) -> None:
     """Tests that mappings from the change object will overwrite current mappings.
 
@@ -275,7 +352,7 @@ def test_mappings_manager_merge_changes(
     updated_mappings = mappings_manager.merge_changes(change_object)
     assert updated_mappings.stratigraphy == mappings_manager.stratigraphy_mappings
     assert len(mappings_manager.stratigraphy_mappings) == 0
-    assert len(mappings_manager.well_mappings) == 0
+    assert len(mappings_manager.wellbore_mappings) == 0
 
     new_mappings = StratigraphyMappings(
         root=[
@@ -293,15 +370,16 @@ def test_mappings_manager_merge_changes(
     change_object.stratigraphy = new_mappings
     updated_mappings = mappings_manager.merge_changes(change_object)
 
-    assert len(updated_mappings.wells) == 0
+    assert len(updated_mappings.wellbore) == 0
     assert len(updated_mappings.stratigraphy) == 1
     assert updated_mappings.stratigraphy == new_mappings
     assert mappings_manager.stratigraphy_mappings == new_mappings
 
-    # Assert that merging of wells is not supported yet
-    change_object.wells = ["test"]
-    with pytest.raises(NotImplementedError):
-        updated_mappings = mappings_manager.merge_changes(change_object)
+    change_object.wellbore = wellbore_mappings
+    updated_mappings = mappings_manager.merge_changes(change_object)
+    assert updated_mappings.wellbore == wellbore_mappings
+    assert mappings_manager.wellbore_mappings == wellbore_mappings
+    assert len(updated_mappings.wellbore) == 1
 
 
 def test_mappings_manager_structured_diff_uses_full_item_identity(

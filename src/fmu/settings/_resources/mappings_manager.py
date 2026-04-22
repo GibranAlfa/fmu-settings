@@ -12,12 +12,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     # Avoid circular dependency for type hint in __init__ only
-    from fmu.datamodels.context.mappings import (
-        StratigraphyMappings,
-    )
-    from fmu.settings._fmu_dir import (
-        ProjectFMUDirectory,
-    )
+    from fmu.datamodels.context.mappings import StratigraphyMappings, WellboreMappings
+    from fmu.settings._fmu_dir import ProjectFMUDirectory
 
 
 class MappingsManager(PydanticResourceManager[Mappings]):
@@ -39,6 +35,7 @@ class MappingsManager(PydanticResourceManager[Mappings]):
         """List field identity keys used for per-item diffing."""
         return {
             "stratigraphy.root": "__full__",
+            "wellbore.root": "__full__",
         }
 
     @property
@@ -47,9 +44,9 @@ class MappingsManager(PydanticResourceManager[Mappings]):
         return self.load().stratigraphy
 
     @property
-    def well_mappings(self: Self) -> list[Any]:
-        """Get all well mappings."""
-        return self.load().wells
+    def wellbore_mappings(self: Self) -> WellboreMappings:
+        """Get all wellbore mappings."""
+        return self.load().wellbore
 
     def update_stratigraphy_mappings(
         self: Self, strat_mappings: StratigraphyMappings
@@ -69,14 +66,28 @@ class MappingsManager(PydanticResourceManager[Mappings]):
 
         return self.stratigraphy_mappings
 
-    def update_well_mappings(self: Self) -> None:
-        # TODO: Add well mappings functionality
-        raise NotImplementedError
+    def update_wellbore_mappings(
+        self: Self, wellbore_mappings: WellboreMappings
+    ) -> WellboreMappings:
+        """Updates the wellbore mappings in the mappings resource."""
+        mappings: Mappings = self.load() if self.exists else Mappings()
+
+        old_mappings_dict = copy.deepcopy(mappings.model_dump())
+        mappings.wellbore = wellbore_mappings
+        self.save(mappings)
+
+        self.fmu_dir.changelog.log_update_to_changelog(
+            updates={"wellbore": mappings.wellbore},
+            old_resource_dict=old_mappings_dict,
+            relative_path=self.relative_path,
+        )
+
+        return self.wellbore_mappings
 
     def get_mappings_diff(self: Self, incoming_mappings: MappingsManager) -> Mappings:
         """Get mappings diff with the incoming mappings resource.
 
-        All mappings from the incommng mappings resource are returned.
+        All mappings from the incoming mappings resource are returned.
         """
         if self.exists and incoming_mappings.exists:
             return incoming_mappings.load()
@@ -103,8 +114,8 @@ class MappingsManager(PydanticResourceManager[Mappings]):
         """
         if len(changes.stratigraphy) > 0 or len(self.stratigraphy_mappings) > 0:
             self.update_stratigraphy_mappings(changes.stratigraphy)
-        if len(changes.wells) > 0 or len(self.well_mappings) > 0:
-            self.update_well_mappings()
+        if len(changes.wellbore) > 0 or len(self.wellbore_mappings) > 0:
+            self.update_wellbore_mappings(changes.wellbore)
         return self.load()
 
     def build_global_config_stratigraphy(self) -> Stratigraphy:  # noqa: PLR0912

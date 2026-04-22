@@ -1325,7 +1325,7 @@ def test_fmu_directory_base_sync_dir_with_all_resources(
     assert fmu_dir.config.load().masterdata is None
 
     assert "_mappings" in updated_resources
-    assert len(fmu_dir._mappings.well_mappings) == 0
+    assert len(fmu_dir._mappings.wellbore_mappings) == 0
     assert len(fmu_dir._mappings.stratigraphy_mappings) == 1
     assert fmu_dir._mappings.stratigraphy_mappings[0] == new_strat_mapping
 
@@ -1464,7 +1464,7 @@ def test_fmu_directory_base_get_dir_diff_with_mappings(
     assert mappings_diff[0] == "mappings"
     assert mappings_diff[1] is None
     assert isinstance(mappings_diff[2], Mappings)
-    assert len(mappings_diff[2].wells) == 0
+    assert len(mappings_diff[2].wellbore) == 0
     assert len(mappings_diff[2].stratigraphy) == 1
     assert mappings_diff[2].stratigraphy[0] == new_strat_mapping
 
@@ -1511,7 +1511,7 @@ def test_fmu_directory_base_sync_dir_with_mappings(
     # Assert mappings are updated as expected
     assert "_mappings" in updates
     assert updates["_mappings"] == fmu_dir._mappings.load()
-    assert len(fmu_dir._mappings.well_mappings) == 0
+    assert len(fmu_dir._mappings.wellbore_mappings) == 0
     assert len(fmu_dir._mappings.stratigraphy_mappings) == 1
     assert fmu_dir._mappings.stratigraphy_mappings[0] == new_strat_mapping
 

@@ -143,7 +143,7 @@ def rms_horizons_list() -> list[dict[str, Any]]:
 
 
 @pytest.fixture
-def rms_wells_list() -> list[dict[str, str]]:
+def rms_wells_list() -> list[dict[str, str | bool]]:
     """Example RMS wells list."""
     return deepcopy(RMS_WELLS)
 
