@@ -28,6 +28,11 @@ if TYPE_CHECKING:
 class MappingsManager(PydanticResourceManager[Mappings]):
     """Manages the .fmu mappings file."""
 
+    WELL_INFO_DIRECTORY = Path("rms/input/well_modelling/well_info")
+    RMS_ECLIPSE_CSV_PATH = WELL_INFO_DIRECTORY / "rms_eclipse.csv"
+    RMS_ECLIPSE_RENAMING_TABLE_PATH = WELL_INFO_DIRECTORY / "rms_eclipse.renaming_table"
+    PDM_RMS_RENAMING_TABLE_PATH = WELL_INFO_DIRECTORY / "pdm_rms.renaming_table"
+
     fmu_dir: ProjectFMUDirectory
 
     def __init__(self: Self, fmu_dir: ProjectFMUDirectory) -> None:
@@ -93,28 +98,6 @@ class MappingsManager(PydanticResourceManager[Mappings]):
 
         return self.wellbore_mappings
 
-    def _resolve_project_root_path(
-        self: Self,
-        relative_path: str | Path | None,
-        *,
-        default_path: str | Path,
-        argument_name: str,
-    ) -> tuple[Path, Path]:
-        """Resolve a project-root-relative path and reject paths outside the root."""
-        project_relative_path = (
-            Path(relative_path) if relative_path is not None else Path(default_path)
-        )
-        resolved_path = (self.fmu_dir.base_path / project_relative_path).resolve()
-
-        try:
-            project_relative_path = resolved_path.relative_to(self.fmu_dir.base_path)
-        except ValueError as error:
-            raise ValueError(
-                f"{argument_name} must stay within the project root"
-            ) from error
-
-        return project_relative_path, resolved_path
-
     def read_rms_eclipse_csv(
         self: Self, csv_relative_path: str | Path | None = None
     ) -> WellboreMappings:
@@ -137,9 +120,9 @@ class MappingsManager(PydanticResourceManager[Mappings]):
             ValueError: If the path escapes the project root, required columns are
                 missing, or a row has missing values.
         """
-        _, csv_path = self._resolve_project_root_path(
+        csv_relative_path = csv_relative_path or self.RMS_ECLIPSE_CSV_PATH
+        _, csv_path = self.fmu_dir.resolve_project_path(
             csv_relative_path,
-            default_path="rms/input/well_modelling/well_info/rms_eclipse.csv",
             argument_name="csv_relative_path",
         )
 
@@ -215,9 +198,9 @@ class MappingsManager(PydanticResourceManager[Mappings]):
                 RMS-to-simulator primary wellbore mappings to write.
         """
         self.fmu_dir._lock.ensure_can_write()
-        csv_relative_path, csv_path = self._resolve_project_root_path(
+        csv_relative_path = csv_relative_path or self.RMS_ECLIPSE_CSV_PATH
+        csv_relative_path, csv_path = self.fmu_dir.resolve_project_path(
             csv_relative_path,
-            default_path="rms/input/well_modelling/well_info/rms_eclipse.csv",
             argument_name="csv_relative_path",
         )
 
@@ -254,6 +237,50 @@ class MappingsManager(PydanticResourceManager[Mappings]):
 
         return csv_relative_path
 
+    def _write_wellbore_renaming_table(  # noqa: PLR0913 (too many args, but they are needed)
+        self: Self,
+        wellbore_mappings: WellboreMappings,
+        *,
+        renaming_table_relative_path: str | Path | None,
+        default_path: str | Path,
+        source_system: DataSystem,
+        target_system: DataSystem,
+        header: str,
+        empty_message: str,
+    ) -> Path:
+        """Write primary wellbore mappings to a two-column renaming table."""
+        self.fmu_dir._lock.ensure_can_write()
+        renaming_table_relative_path = renaming_table_relative_path or default_path
+        renaming_table_relative_path, renaming_table_path = (
+            self.fmu_dir.resolve_project_path(
+                renaming_table_relative_path,
+                argument_name="renaming_table_relative_path",
+            )
+        )
+
+        rows = [
+            (mapping.source_id, mapping.target_id)
+            for mapping in wellbore_mappings
+            if (
+                mapping.source_system == source_system
+                and mapping.target_system == target_system
+                and mapping.mapping_type == MappingType.wellbore
+                and mapping.relation_type == RelationType.primary
+            )
+        ]
+
+        if not rows:
+            raise ValueError(empty_message)
+
+        renaming_table_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with renaming_table_path.open("w", encoding="utf-8", newline="") as file_handle:
+            file_handle.write(f"{header}\n")
+            for source_id, target_id in rows:
+                file_handle.write(f"{source_id}\t{target_id}\n")
+
+        return renaming_table_relative_path
+
     def write_rms_eclipse_renaming_table(
         self: Self,
         wellbore_mappings: WellboreMappings,
@@ -284,39 +311,18 @@ class MappingsManager(PydanticResourceManager[Mappings]):
             ValueError: If the path escapes the project root or there are no
                 RMS-to-simulator primary wellbore mappings to write.
         """
-        self.fmu_dir._lock.ensure_can_write()
-        renaming_table_relative_path, renaming_table_path = (
-            self._resolve_project_root_path(
-                renaming_table_relative_path,
-                default_path="rms/input/well_modelling/well_info/rms_eclipse.renaming_table",
-                argument_name="renaming_table_relative_path",
-            )
-        )
-
-        rows: list[tuple[str, str]] = []
-        for mapping in wellbore_mappings:
-            if (
-                mapping.source_system == DataSystem.rms
-                and mapping.target_system == DataSystem.simulator
-                and mapping.mapping_type == MappingType.wellbore
-                and mapping.relation_type == RelationType.primary
-            ):
-                rows.append((mapping.source_id, mapping.target_id))
-
-        if not rows:
-            raise ValueError(
+        return self._write_wellbore_renaming_table(
+            wellbore_mappings,
+            renaming_table_relative_path=renaming_table_relative_path,
+            default_path=self.RMS_ECLIPSE_RENAMING_TABLE_PATH,
+            source_system=DataSystem.rms,
+            target_system=DataSystem.simulator,
+            header="SETNAMES rms\teclipse",
+            empty_message=(
                 "No RMS-to-simulator primary wellbore mappings available to "
                 "write to rms_eclipse.renaming_table"
-            )
-
-        renaming_table_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with renaming_table_path.open("w", encoding="utf-8", newline="") as file_handle:
-            file_handle.write("SETNAMES rms\teclipse\n")
-            for source_id, target_id in rows:
-                file_handle.write(f"{source_id}\t{target_id}\n")
-
-        return renaming_table_relative_path
+            ),
+        )
 
     def write_pdm_rms_renaming_table(
         self: Self,
@@ -348,39 +354,18 @@ class MappingsManager(PydanticResourceManager[Mappings]):
             ValueError: If the path escapes the project root or there are no
                 PDM-to-RMS primary wellbore mappings to write.
         """
-        self.fmu_dir._lock.ensure_can_write()
-        renaming_table_relative_path, renaming_table_path = (
-            self._resolve_project_root_path(
-                renaming_table_relative_path,
-                default_path="rms/input/well_modelling/well_info/pdm_rms.renaming_table",
-                argument_name="renaming_table_relative_path",
-            )
-        )
-
-        rows: list[tuple[str, str]] = []
-        for mapping in wellbore_mappings:
-            if (
-                mapping.source_system == DataSystem.pdm
-                and mapping.target_system == DataSystem.rms
-                and mapping.mapping_type == MappingType.wellbore
-                and mapping.relation_type == RelationType.primary
-            ):
-                rows.append((mapping.source_id, mapping.target_id))
-
-        if not rows:
-            raise ValueError(
+        return self._write_wellbore_renaming_table(
+            wellbore_mappings,
+            renaming_table_relative_path=renaming_table_relative_path,
+            default_path=self.PDM_RMS_RENAMING_TABLE_PATH,
+            source_system=DataSystem.pdm,
+            target_system=DataSystem.rms,
+            header="SETNAMES pdm\trms",
+            empty_message=(
                 "No PDM-to-RMS primary wellbore mappings available to "
                 "write to pdm_rms.renaming_table"
-            )
-
-        renaming_table_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with renaming_table_path.open("w", encoding="utf-8", newline="") as file_handle:
-            file_handle.write("SETNAMES pdm\trms\n")
-            for source_id, target_id in rows:
-                file_handle.write(f"{source_id}\t{target_id}\n")
-
-        return renaming_table_relative_path
+            ),
+        )
 
     def wellbore_mappings_to_dataframe(
         self: Self, wellbore_mappings: WellboreMappings

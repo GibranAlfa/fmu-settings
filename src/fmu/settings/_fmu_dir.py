@@ -351,6 +351,25 @@ class ProjectFMUDirectory(FMUDirectoryBase):
         """Access the MappingsManager."""
         return self._mappings
 
+    def resolve_project_path(
+        self: Self,
+        relative_path: str | Path,
+        *,
+        argument_name: str,
+    ) -> tuple[Path, Path]:
+        """Resolve a project-root-relative path and reject paths outside the root."""
+        project_relative_path = Path(relative_path)
+        resolved_project_path = (self.base_path / project_relative_path).resolve()
+
+        try:
+            project_relative_path = resolved_project_path.relative_to(self.base_path)
+        except ValueError as error:
+            raise ValueError(
+                f"{argument_name} must stay within the project root"
+            ) from error
+
+        return project_relative_path, resolved_project_path
+
     def list_restorable_files(self: Self) -> list[Path]:
         """List project .fmu files that would be recreated by restore()."""
         files = super().list_restorable_files()
