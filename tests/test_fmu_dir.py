@@ -487,6 +487,32 @@ def test_ensure_directory(fmu_dir: ProjectFMUDirectory) -> None:
     assert dir_path.is_dir()
 
 
+def test_resolve_project_path_returns_relative_and_absolute_paths(
+    fmu_dir: ProjectFMUDirectory,
+) -> None:
+    """Project-root paths are normalized to both relative and absolute forms."""
+    relative_path, resolved_path = fmu_dir.resolve_project_path(
+        fmu_dir.base_path / "data" / "custom" / "file.txt",
+        argument_name="test_path",
+    )
+
+    assert relative_path == Path("data/custom/file.txt")
+    assert resolved_path == fmu_dir.base_path / relative_path
+
+
+@pytest.mark.parametrize("path", [Path("../outside.txt"), Path("/tmp/outside.txt")])
+def test_resolve_project_path_raises_for_paths_outside_project_root(
+    fmu_dir: ProjectFMUDirectory,
+    path: Path,
+) -> None:
+    """Project-root resolution rejects paths that escape the project root."""
+    with pytest.raises(ValueError, match="test_path must stay within the project root"):
+        fmu_dir.resolve_project_path(
+            path,
+            argument_name="test_path",
+        )
+
+
 def test_user_init_existing_directory(user_fmu_dir: UserFMUDirectory) -> None:
     """Tests initializing an ProjectFMUDirectory on an existing .fmu directory."""
     with patch("pathlib.Path.home", return_value=user_fmu_dir.base_path):
