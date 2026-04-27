@@ -5,8 +5,6 @@ import csv
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
-import pandas as pd
-
 from fmu.datamodels.context.mappings import (
     DataSystem,
     MappingType,
@@ -366,84 +364,6 @@ class MappingsManager(PydanticResourceManager[Mappings]):
                 "write to pdm_rms.renaming_table"
             ),
         )
-
-    def wellbore_mappings_to_dataframe(
-        self: Self, wellbore_mappings: WellboreMappings
-    ) -> dict[str, pd.DataFrame]:
-        """Convert RMS wellbore mappings to one dataframe per target system.
-
-        Each returned dataframe has the fixed source column ``rms`` and one
-        target-system column such as ``simulator`` or ``smda``.
-
-        Args:
-            wellbore_mappings: Wellbore mappings to convert. All mappings must use
-                ``DataSystem.rms`` as the source system, ``MappingType.wellbore``
-                as the mapping type, and ``RelationType.primary`` as the relation
-                type to be included. Mappings that do not match all three are
-                ignored.
-
-        Returns:
-            A dictionary keyed by target-system name. Each value is a dataframe
-            containing the RMS source ids and the corresponding target ids for
-            that target system.
-
-            Example return value when both simulator and SMDA mappings are
-            present:
-
-            {
-                "simulator": pd.DataFrame(
-                    [{"rms": "30_9-B-43_A", "simulator": "B43A"}]
-                ),
-                "smda": pd.DataFrame(
-                    [{"rms": "30_9-B-21_C", "smda": "NO 30/9-B-21 C"}]
-                ),
-            }
-
-            Example usage from an rms_eclipse.csv file:
-
-            from fmu.settings import get_fmu_directory
-
-            fmu_dir = get_fmu_directory("/path/to/project")
-            # Read directly from rms/input/well_modelling/well_info/rms_eclipse.csv
-            wellbore_mappings = fmu_dir.mappings.read_rms_eclipse_csv()
-            # Or pass a custom path relative to the project root:
-            # wellbore_mappings = fmu_dir.mappings.read_rms_eclipse_csv(
-            #     "data/custom/rms_eclipse.csv"
-            # )
-            df = fmu_dir.mappings.wellbore_mappings_to_dataframe(wellbore_mappings)
-            simulator_df = df["simulator"]
-            smda_df = df["smda"]
-
-            Example usage from mappings.json in the project .fmu directory:
-
-            from fmu.settings import get_fmu_directory
-
-            fmu_dir = get_fmu_directory("/path/to/project")
-            wellbore_mappings = fmu_dir.mappings.wellbore_mappings
-            df = fmu_dir.mappings.wellbore_mappings_to_dataframe(wellbore_mappings)
-            simulator_df = df["simulator"]
-            smda_df = df["smda"]
-
-        """
-        grouped_rows: dict[str, list[dict[str, str]]] = {}
-        for mapping in wellbore_mappings:
-            if (
-                mapping.source_system == DataSystem.rms
-                and mapping.mapping_type == MappingType.wellbore
-                and mapping.relation_type == RelationType.primary
-            ):
-                target_system = mapping.target_system.value
-                grouped_rows.setdefault(target_system, []).append(
-                    {
-                        "rms": mapping.source_id,
-                        target_system: mapping.target_id,
-                    }
-                )
-
-        return {
-            target_system: pd.DataFrame(rows, columns=["rms", target_system])
-            for target_system, rows in grouped_rows.items()
-        }
 
     def get_mappings_diff(self: Self, incoming_mappings: MappingsManager) -> Mappings:
         """Get mappings diff with the incoming mappings resource.
