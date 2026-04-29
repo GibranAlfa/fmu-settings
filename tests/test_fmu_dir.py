@@ -39,6 +39,27 @@ from fmu.settings.models.log import Log
 from fmu.settings.models.mappings import Mappings
 
 
+def _stratigraphy_mappings(source_id: str, target_id: str) -> StratigraphyMappings:
+    return StratigraphyMappings(
+        root=[
+            StratigraphyIdentifierMapping(
+                source_system=DataSystem.rms,
+                target_system=DataSystem.rms,
+                relation_type=RelationType.primary,
+                source_id=source_id,
+                target_id=source_id,
+            ),
+            StratigraphyIdentifierMapping(
+                source_system=DataSystem.rms,
+                target_system=DataSystem.smda,
+                relation_type=RelationType.primary,
+                source_id=source_id,
+                target_id=target_id,
+            ),
+        ]
+    )
+
+
 def test_init_existing_directory(fmu_dir: ProjectFMUDirectory) -> None:
     """Tests initializing an ProjectFMUDirectory on an existing .fmu directory."""
     fmu = ProjectFMUDirectory(fmu_dir.base_path)
@@ -278,29 +299,17 @@ def test_restore_from_cache_restores_mappings(
     fmu_dir: ProjectFMUDirectory,
 ) -> None:
     """Restoring mappings should refresh the resource cache."""
-    cached_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopVolantis",
-        target_id="VOLANTIS GP. Top",
+    cached_mappings = Mappings(
+        stratigraphy=_stratigraphy_mappings("TopVolantis", "VOLANTIS GP. Top")
     )
-    cached_mappings = Mappings(stratigraphy=StratigraphyMappings(root=[cached_mapping]))
     snapshot = fmu_dir.cache.store_revision(
         CacheResource.mappings.value,
         cached_mappings.model_dump_json(by_alias=True, indent=2),
     )
     assert snapshot is not None
 
-    current_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopTherys",
-        target_id="THERYS GP. Top",
-    )
     current_mappings = Mappings(
-        stratigraphy=StratigraphyMappings(root=[current_mapping])
+        stratigraphy=_stratigraphy_mappings("TopTherys", "THERYS GP. Top")
     )
     fmu_dir.mappings.save(current_mappings)
 
@@ -612,15 +621,8 @@ def test_restore_rebuilds_project_fmu_from_cache(
     """Tests that restore should recreate missing files using cached config data."""
     fmu_dir.update_config({"version": "123.4.5"})
     cached_dump = json.loads((fmu_dir.path / "config.json").read_text())
-    cached_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopVolantis",
-        target_id="VOLANTIS GP. Top",
-    )
     fmu_dir.mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[cached_mapping])
+        _stratigraphy_mappings("TopVolantis", "VOLANTIS GP. Top")
     )
     cached_mappings_dump = json.loads((fmu_dir.path / "mappings.json").read_text())
 
@@ -704,15 +706,8 @@ def test_list_restorable_files_reports_missing_project_files(
     fmu_dir: ProjectFMUDirectory,
 ) -> None:
     """Tests list_restorable_files reports only files restore would recreate."""
-    cached_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopVolantis",
-        target_id="VOLANTIS GP. Top",
-    )
     fmu_dir.mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[cached_mapping])
+        _stratigraphy_mappings("TopVolantis", "VOLANTIS GP. Top")
     )
 
     (fmu_dir.path / "README").unlink()
@@ -1302,16 +1297,8 @@ def test_fmu_directory_base_sync_dir_with_all_resources(
 
     fmu_dir._mappings.update_stratigraphy_mappings(StratigraphyMappings(root=[]))
     new_fmu_dir = extra_fmu_dir
-    new_strat_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopViking",
-        target_id="VIKING GP. Top",
-    )
-    new_fmu_dir._mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[new_strat_mapping])
-    )
+    new_strat_mappings = _stratigraphy_mappings("TopViking", "VIKING GP. Top")
+    new_fmu_dir._mappings.update_stratigraphy_mappings(new_strat_mappings)
 
     assert len(new_fmu_dir._changelog.load()) == 1
     assert new_fmu_dir._changelog.load()[0].key == "stratigraphy"
@@ -1326,8 +1313,8 @@ def test_fmu_directory_base_sync_dir_with_all_resources(
 
     assert "_mappings" in updated_resources
     assert len(fmu_dir._mappings.wellbore_mappings) == 0
-    assert len(fmu_dir._mappings.stratigraphy_mappings) == 1
-    assert fmu_dir._mappings.stratigraphy_mappings[0] == new_strat_mapping
+    assert len(fmu_dir._mappings.stratigraphy_mappings) == 2
+    assert fmu_dir._mappings.stratigraphy_mappings == new_strat_mappings
 
     assert "_changelog" in updated_resources
     updated_changelog: Log[ChangeInfo] = updated_resources["_changelog"]
@@ -1430,24 +1417,12 @@ def test_fmu_directory_base_get_dir_diff_with_mappings(
     extra_fmu_dir: ProjectFMUDirectory,
 ) -> None:
     """Tests getting the diff with another .fmu directory with mappings."""
-    strat_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopViking",
-        target_id="VIKING GP. Top",
-    )
-    fmu_dir._mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[strat_mapping])
-    )
+    strat_mappings = _stratigraphy_mappings("TopViking", "VIKING GP. Top")
+    fmu_dir._mappings.update_stratigraphy_mappings(strat_mappings)
 
     new_fmu_dir = extra_fmu_dir
-    new_strat_mapping = copy.deepcopy(strat_mapping)
-    new_strat_mapping.source_id = "TopVolantis"
-    new_strat_mapping.target_id = "VOLANTIS GP. Top"
-    new_fmu_dir._mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[new_strat_mapping])
-    )
+    new_strat_mappings = _stratigraphy_mappings("TopVolantis", "VOLANTIS GP. Top")
+    new_fmu_dir._mappings.update_stratigraphy_mappings(new_strat_mappings)
 
     old_fmu_dir = copy.deepcopy(fmu_dir)
     dir_diff = fmu_dir.get_dir_diff(new_fmu_dir)
@@ -1465,8 +1440,8 @@ def test_fmu_directory_base_get_dir_diff_with_mappings(
     assert mappings_diff[1] is None
     assert isinstance(mappings_diff[2], Mappings)
     assert len(mappings_diff[2].wellbore) == 0
-    assert len(mappings_diff[2].stratigraphy) == 1
-    assert mappings_diff[2].stratigraphy[0] == new_strat_mapping
+    assert len(mappings_diff[2].stratigraphy) == 2
+    assert mappings_diff[2].stratigraphy == new_strat_mappings
 
     # Assert no config changes
     assert "config" in dir_diff
@@ -1487,24 +1462,12 @@ def test_fmu_directory_base_sync_dir_with_mappings(
     extra_fmu_dir: ProjectFMUDirectory,
 ) -> None:
     """Tests syncing mappings resource with another .fmu directory."""
-    strat_mapping = StratigraphyIdentifierMapping(
-        source_system=DataSystem.rms,
-        target_system=DataSystem.smda,
-        relation_type=RelationType.primary,
-        source_id="TopViking",
-        target_id="VIKING GP. Top",
-    )
-    fmu_dir._mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[strat_mapping])
-    )
+    strat_mappings = _stratigraphy_mappings("TopViking", "VIKING GP. Top")
+    fmu_dir._mappings.update_stratigraphy_mappings(strat_mappings)
 
     new_fmu_dir = extra_fmu_dir
-    new_strat_mapping = copy.deepcopy(strat_mapping)
-    new_strat_mapping.source_id = "TopVolantis"
-    new_strat_mapping.target_id = "VOLANTIS GP. Top"
-    new_fmu_dir._mappings.update_stratigraphy_mappings(
-        StratigraphyMappings(root=[new_strat_mapping])
-    )
+    new_strat_mappings = _stratigraphy_mappings("TopVolantis", "VOLANTIS GP. Top")
+    new_fmu_dir._mappings.update_stratigraphy_mappings(new_strat_mappings)
 
     updates = fmu_dir.sync_dir(new_fmu_dir)
 
@@ -1512,8 +1475,8 @@ def test_fmu_directory_base_sync_dir_with_mappings(
     assert "_mappings" in updates
     assert updates["_mappings"] == fmu_dir._mappings.load()
     assert len(fmu_dir._mappings.wellbore_mappings) == 0
-    assert len(fmu_dir._mappings.stratigraphy_mappings) == 1
-    assert fmu_dir._mappings.stratigraphy_mappings[0] == new_strat_mapping
+    assert len(fmu_dir._mappings.stratigraphy_mappings) == 2
+    assert fmu_dir._mappings.stratigraphy_mappings == new_strat_mappings
 
     # Assert no config changes
     assert "config" not in updates

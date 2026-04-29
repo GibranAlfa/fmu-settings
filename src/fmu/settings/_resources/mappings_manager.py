@@ -4,9 +4,14 @@ import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
+from fmu.datamodels.context.mappings import RelationType
 from fmu.datamodels.fmu_results.global_configuration import Stratigraphy
 from fmu.settings._resources.pydantic_resource_manager import PydanticResourceManager
-from fmu.settings.models.mappings import Mappings, RelationType
+from fmu.settings.models.mappings import (
+    MappableIdentifierMapping,
+    MappableMappings,
+    Mappings,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -118,7 +123,101 @@ class MappingsManager(PydanticResourceManager[Mappings]):
             self.update_wellbore_mappings(changes.wellbore)
         return self.load()
 
-    def build_global_config_stratigraphy(self) -> Stratigraphy:  # noqa: PLR0912
+    def get_mappable_mappings(
+        self: Self,
+        mappings: StratigraphyMappings | WellboreMappings,
+    ) -> MappableMappings:
+        """Return mappings that point from one system to another system.
+
+        Stored mappings can describe relationships inside the same system, for
+        example ``rms -> rms`` primaries and aliases. Downstream consumers often
+        need mappable mappings instead, for example ``rms -> smda``.
+
+        This method first finds same-system aliases and groups them by the
+        same-system primary identifier they point to. It then keeps cross-system
+        primary mappings and adds matching aliases to the same cross-system
+        target. A same-system alias is only included when its primary identifier
+        also has a cross-system primary mapping.
+
+        Example:
+        - ``rms -> rms: TopVolantis primary TopVolantis``
+        - ``rms -> rms: TopVOLANTIS alias TopVolantis``
+        - ``rms -> rms: TOP_VOLANTIS alias TopVolantis``
+        - ``rms -> smda: TopVolantis primary VOLANTIS GP. Top``
+        - ``rms -> rms: Seabase primary Seabase``
+        - ``rms -> smda: Seabase unmappable``
+
+        becomes:
+        - ``rms -> smda: TopVolantis primary VOLANTIS GP. Top``
+        - ``rms -> smda: TopVOLANTIS alias VOLANTIS GP. Top``
+        - ``rms -> smda: TOP_VOLANTIS alias VOLANTIS GP. Top``
+
+        The same-system mappings, and the unmappable ``Seabase`` mappings, are not
+        included in the returned mappable mappings.
+        """
+        aliases_by_primary: dict[tuple[Any, Any, str], list[Any]] = {}
+
+        # Group same-system aliases by the same-system primary id they point to.
+        for mapping in mappings:
+            if (
+                mapping.source_system == mapping.target_system
+                and mapping.relation_type == RelationType.alias
+                and mapping.target_id is not None
+            ):
+                primary_key = (
+                    mapping.mapping_type,
+                    mapping.source_system,
+                    mapping.target_id,
+                )
+                if primary_key not in aliases_by_primary:
+                    aliases_by_primary[primary_key] = []
+                aliases_by_primary[primary_key].append(mapping)
+
+        mappable_mappings: list[MappableIdentifierMapping] = []
+
+        # Keep cross-system primaries and add matching aliases to the same target.
+        for mapping in mappings:
+            if (
+                mapping.source_system == mapping.target_system
+                or mapping.relation_type != RelationType.primary
+                or mapping.target_id is None
+            ):
+                continue
+
+            mappable_mappings.append(
+                MappableIdentifierMapping(
+                    source_system=mapping.source_system,
+                    target_system=mapping.target_system,
+                    mapping_type=mapping.mapping_type,
+                    relation_type=RelationType.primary,
+                    source_id=mapping.source_id,
+                    source_uuid=mapping.source_uuid,
+                    target_id=mapping.target_id,
+                    target_uuid=mapping.target_uuid,
+                )
+            )
+            primary_key = (
+                mapping.mapping_type,
+                mapping.source_system,
+                mapping.source_id,
+            )
+            for alias_mapping in aliases_by_primary.get(primary_key, []):
+                mappable_mappings.append(
+                    MappableIdentifierMapping(
+                        source_system=mapping.source_system,
+                        target_system=mapping.target_system,
+                        mapping_type=mapping.mapping_type,
+                        relation_type=RelationType.alias,
+                        source_id=alias_mapping.source_id,
+                        source_uuid=alias_mapping.source_uuid,
+                        target_id=mapping.target_id,
+                        target_uuid=mapping.target_uuid,
+                    )
+                )
+
+        return MappableMappings(root=mappable_mappings)
+
+    def build_global_config_stratigraphy(self) -> Stratigraphy:
         """Build a global config stratigraphy from mappings and RMS config.
 
         Combines stratigraphy mappings with RMS horizons and zones from the project
@@ -126,25 +225,20 @@ class MappingsManager(PydanticResourceManager[Mappings]):
         """
         stratigraphy: dict[str, dict[str, Any]] = {}
         mappings = self.load() if self.exists else Mappings()
+        stratigraphy_mappings = self.get_mappable_mappings(mappings.stratigraphy)
 
         primaries: dict[str, str] = {}  # source_id -> target_id
         aliases_by_target: dict[str, list[str]] = {}  # target_id -> [alias source_ids]
-        equivalents_by_target: dict[str, list[str]] = {}
 
         # Stratigraphic entries from stratigraphy mappings
-        for mapping in mappings.stratigraphy:
+        for mapping in stratigraphy_mappings:
             if mapping.relation_type == RelationType.primary:
                 primaries[mapping.source_id] = mapping.target_id
             elif mapping.relation_type == RelationType.alias:
                 aliases_by_target.setdefault(mapping.target_id, []).append(
                     mapping.source_id
                 )
-            elif mapping.relation_type == RelationType.equivalent:
-                equivalents_by_target.setdefault(mapping.target_id, []).append(
-                    mapping.source_id
-                )
 
-        primary_targets = set(primaries.values())
         for source_id, target_id in primaries.items():
             entry: dict[str, Any] = {
                 "stratigraphic": True,
@@ -153,16 +247,6 @@ class MappingsManager(PydanticResourceManager[Mappings]):
             if aliases := aliases_by_target.get(target_id):
                 entry["alias"] = aliases
             stratigraphy[source_id] = entry
-
-        # Keep equivalent-only mappings as valid stratigraphic entries even when
-        # there is no separate primary RMS identifier for the same official name
-        for target_id in equivalents_by_target:
-            if target_id in primary_targets:
-                continue
-            stratigraphy[target_id] = {
-                "stratigraphic": True,
-                "name": target_id,
-            }
 
         # Non-stratigraphic entries from RMS
         rms_config = self.fmu_dir.get_config_value("rms")

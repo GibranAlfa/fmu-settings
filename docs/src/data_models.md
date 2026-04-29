@@ -107,14 +107,6 @@ For stratigraphy, `mappings.json` is essentially a collection of `StratigraphyId
    :model-show-json: False
 ```
 
-```{eval-rst}
-.. autopydantic_model:: fmu.settings.models.mappings.MappingGroup
-   :members:
-   :undoc-members:
-   :exclude-members: _count_mappings_by_relation_type, validate_group, serialize_for_display
-   :model-show-json: False
-```
-
 The stratigraphy mappings in `Mappings` use the `StratigraphyMappings` schema from FMU datamodels.
 
 ```{eval-rst}
