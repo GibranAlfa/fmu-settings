@@ -287,7 +287,7 @@ def test_read_rms_eclipse_csv_raises_for_path_outside_project_root(
 
     with pytest.raises(
         ValueError,
-        match="csv_relative_path must stay within the project root",
+        match="must stay within the project root",
     ):
         mappings_manager.read_rms_eclipse_csv(csv_relative_path)
 
@@ -358,9 +358,11 @@ def test_write_rms_eclipse_csv_writes_expected_format(
     """Well mappings are written using the rms_eclipse.csv format."""
     mappings_manager = MappingsManager(fmu_dir)
     csv_relative_path = Path("data/custom/rms_eclipse.csv")
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(root=[make_wellbore_identifier_mapping()])
+    )
 
     written_path = mappings_manager.write_rms_eclipse_csv(
-        WellboreMappings(root=[make_wellbore_identifier_mapping()]),
         csv_relative_path=csv_relative_path,
     )
 
@@ -375,10 +377,11 @@ def test_write_rms_eclipse_csv_uses_default_path(
 ) -> None:
     """Default write path is the project rms_eclipse.csv location."""
     mappings_manager = MappingsManager(fmu_dir)
-
-    written_path = mappings_manager.write_rms_eclipse_csv(
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(root=[make_wellbore_identifier_mapping()])
     )
+
+    written_path = mappings_manager.write_rms_eclipse_csv()
 
     assert written_path == Path("rms/input/well_modelling/well_info/rms_eclipse.csv")
     assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
@@ -392,8 +395,7 @@ def test_write_rms_eclipse_csv_ignores_non_simulator_mappings(
     """Mixed input writes only RMS-to-simulator primary wellbore mappings."""
     mappings_manager = MappingsManager(fmu_dir)
     csv_relative_path = Path("data/custom/rms_eclipse.csv")
-
-    written_path = mappings_manager.write_rms_eclipse_csv(
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(
             root=[
                 make_wellbore_identifier_mapping(),
@@ -403,7 +405,10 @@ def test_write_rms_eclipse_csv_ignores_non_simulator_mappings(
                     target_id="NO 30/9-B-21 C",
                 ),
             ]
-        ),
+        )
+    )
+
+    written_path = mappings_manager.write_rms_eclipse_csv(
         csv_relative_path=csv_relative_path,
     )
 
@@ -422,27 +427,27 @@ def test_write_rms_eclipse_csv_raises_and_preserves_file_when_no_rows_match(
     csv_path = fmu_dir.base_path / csv_relative_path
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     csv_path.write_text("existing csv content\n", encoding="utf-8")
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(
+            root=[
+                make_wellbore_identifier_mapping(
+                    target_system=DataSystem.smda,
+                    target_id="NO 30/9-B-43 A",
+                ),
+                make_wellbore_identifier_mapping(
+                    source_system=DataSystem.smda,
+                    source_id="NO 30/9-B-21 C",
+                    target_id="B21C",
+                ),
+            ]
+        )
+    )
 
     with pytest.raises(
         ValueError,
         match="No RMS-to-simulator primary wellbore mappings available",
     ):
-        mappings_manager.write_rms_eclipse_csv(
-            WellboreMappings(
-                root=[
-                    make_wellbore_identifier_mapping(
-                        target_system=DataSystem.smda,
-                        target_id="NO 30/9-B-43 A",
-                    ),
-                    make_wellbore_identifier_mapping(
-                        source_system=DataSystem.smda,
-                        source_id="NO 30/9-B-21 C",
-                        target_id="B21C",
-                    ),
-                ]
-            ),
-            csv_relative_path=csv_relative_path,
-        )
+        mappings_manager.write_rms_eclipse_csv(csv_relative_path=csv_relative_path)
 
     assert csv_path.read_text(encoding="utf-8") == "existing csv content\n"
 
@@ -452,14 +457,16 @@ def test_write_rms_eclipse_renaming_table_writes_expected_format(
 ) -> None:
     """Well mappings are written using the renaming-table format."""
     mappings_manager = MappingsManager(fmu_dir)
-    renaming_table_relative_path = Path("data/custom/rms_eclipse.renaming_table")
-
-    written_path = mappings_manager.write_rms_eclipse_renaming_table(
-        WellboreMappings(root=[make_wellbore_identifier_mapping()]),
-        renaming_table_relative_path=renaming_table_relative_path,
+    relative_path = Path("data/custom/rms_eclipse.renaming_table")
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(root=[make_wellbore_identifier_mapping()])
     )
 
-    assert written_path == renaming_table_relative_path
+    written_path = mappings_manager.write_rms_eclipse_renaming_table(
+        relative_path=relative_path,
+    )
+
+    assert written_path == relative_path
     assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
         "SETNAMES rms\teclipse\n30_9-B-43_A\tB43A\n"
     )
@@ -470,10 +477,11 @@ def test_write_rms_eclipse_renaming_table_uses_default_path(
 ) -> None:
     """Default write path is the project rms_eclipse.renaming_table location."""
     mappings_manager = MappingsManager(fmu_dir)
-
-    written_path = mappings_manager.write_rms_eclipse_renaming_table(
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(root=[make_wellbore_identifier_mapping()])
     )
+
+    written_path = mappings_manager.write_rms_eclipse_renaming_table()
 
     assert written_path == Path(
         "rms/input/well_modelling/well_info/rms_eclipse.renaming_table"
@@ -488,9 +496,8 @@ def test_write_rms_eclipse_renaming_table_ignores_non_simulator_mappings(
 ) -> None:
     """Mixed input writes only RMS-to-simulator primary wellbore mappings."""
     mappings_manager = MappingsManager(fmu_dir)
-    renaming_table_relative_path = Path("data/custom/rms_eclipse.renaming_table")
-
-    written_path = mappings_manager.write_rms_eclipse_renaming_table(
+    relative_path = Path("data/custom/rms_eclipse.renaming_table")
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(
             root=[
                 make_wellbore_identifier_mapping(),
@@ -500,11 +507,14 @@ def test_write_rms_eclipse_renaming_table_ignores_non_simulator_mappings(
                     target_id="NO 30/9-B-21 C",
                 ),
             ]
-        ),
-        renaming_table_relative_path=renaming_table_relative_path,
+        )
     )
 
-    assert written_path == renaming_table_relative_path
+    written_path = mappings_manager.write_rms_eclipse_renaming_table(
+        relative_path=relative_path,
+    )
+
+    assert written_path == relative_path
     assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
         "SETNAMES rms\teclipse\n30_9-B-43_A\tB43A\n"
     )
@@ -519,26 +529,28 @@ def test_write_renaming_table_raises_and_preserves_file_when_no_rows_match(
     renaming_table_path = fmu_dir.base_path / renaming_table_relative_path
     renaming_table_path.parent.mkdir(parents=True, exist_ok=True)
     renaming_table_path.write_text("existing renaming table\n", encoding="utf-8")
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(
+            root=[
+                make_wellbore_identifier_mapping(
+                    target_system=DataSystem.smda,
+                    target_id="NO 30/9-B-43 A",
+                ),
+                make_wellbore_identifier_mapping(
+                    source_system=DataSystem.smda,
+                    source_id="NO 30/9-B-21 C",
+                    target_id="B21C",
+                ),
+            ]
+        )
+    )
 
     with pytest.raises(
         ValueError,
         match="No RMS-to-simulator primary wellbore mappings available",
     ):
         mappings_manager.write_rms_eclipse_renaming_table(
-            WellboreMappings(
-                root=[
-                    make_wellbore_identifier_mapping(
-                        target_system=DataSystem.smda,
-                        target_id="NO 30/9-B-43 A",
-                    ),
-                    make_wellbore_identifier_mapping(
-                        source_system=DataSystem.smda,
-                        source_id="NO 30/9-B-21 C",
-                        target_id="B21C",
-                    ),
-                ]
-            ),
-            renaming_table_relative_path=renaming_table_relative_path,
+            relative_path=renaming_table_relative_path
         )
 
     assert renaming_table_path.read_text(encoding="utf-8") == (
@@ -551,35 +563,8 @@ def test_write_pdm_rms_renaming_table_writes_expected_format(
 ) -> None:
     """Well mappings are written using the PDM-to-RMS renaming-table format."""
     mappings_manager = MappingsManager(fmu_dir)
-    renaming_table_relative_path = Path("data/custom/pdm_rms.renaming_table")
-
-    written_path = mappings_manager.write_pdm_rms_renaming_table(
-        WellboreMappings(
-            root=[
-                make_wellbore_identifier_mapping(
-                    source_system=DataSystem.pdm,
-                    target_system=DataSystem.rms,
-                    source_id="30/9-B-43 A",
-                    target_id="30_9-B-43_A",
-                )
-            ]
-        ),
-        renaming_table_relative_path=renaming_table_relative_path,
-    )
-
-    assert written_path == renaming_table_relative_path
-    assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
-        "SETNAMES pdm\trms\n30/9-B-43 A\t30_9-B-43_A\n"
-    )
-
-
-def test_write_pdm_rms_renaming_table_uses_default_path(
-    fmu_dir: ProjectFMUDirectory,
-) -> None:
-    """Default write path is the project pdm_rms.renaming_table location."""
-    mappings_manager = MappingsManager(fmu_dir)
-
-    written_path = mappings_manager.write_pdm_rms_renaming_table(
+    relative_path = Path("data/custom/pdm_rms.renaming_table")
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(
             root=[
                 make_wellbore_identifier_mapping(
@@ -591,6 +576,36 @@ def test_write_pdm_rms_renaming_table_uses_default_path(
             ]
         )
     )
+
+    written_path = mappings_manager.write_pdm_rms_renaming_table(
+        relative_path=relative_path,
+    )
+
+    assert written_path == relative_path
+    assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
+        "SETNAMES pdm\trms\n30/9-B-43 A\t30_9-B-43_A\n"
+    )
+
+
+def test_write_pdm_rms_renaming_table_uses_default_path(
+    fmu_dir: ProjectFMUDirectory,
+) -> None:
+    """Default write path is the project pdm_rms.renaming_table location."""
+    mappings_manager = MappingsManager(fmu_dir)
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(
+            root=[
+                make_wellbore_identifier_mapping(
+                    source_system=DataSystem.pdm,
+                    target_system=DataSystem.rms,
+                    source_id="30/9-B-43 A",
+                    target_id="30_9-B-43_A",
+                )
+            ]
+        )
+    )
+
+    written_path = mappings_manager.write_pdm_rms_renaming_table()
 
     assert written_path == Path(
         "rms/input/well_modelling/well_info/pdm_rms.renaming_table"
@@ -605,9 +620,8 @@ def test_write_pdm_rms_renaming_table_ignores_non_matching_mappings(
 ) -> None:
     """Mixed input writes only PDM-to-RMS primary wellbore mappings."""
     mappings_manager = MappingsManager(fmu_dir)
-    renaming_table_relative_path = Path("data/custom/pdm_rms.renaming_table")
-
-    written_path = mappings_manager.write_pdm_rms_renaming_table(
+    relative_path = Path("data/custom/pdm_rms.renaming_table")
+    mappings_manager.update_wellbore_mappings(
         WellboreMappings(
             root=[
                 make_wellbore_identifier_mapping(
@@ -623,11 +637,14 @@ def test_write_pdm_rms_renaming_table_ignores_non_matching_mappings(
                     target_id="B21C",
                 ),
             ]
-        ),
-        renaming_table_relative_path=renaming_table_relative_path,
+        )
     )
 
-    assert written_path == renaming_table_relative_path
+    written_path = mappings_manager.write_pdm_rms_renaming_table(
+        relative_path=relative_path,
+    )
+
+    assert written_path == relative_path
     assert (fmu_dir.base_path / written_path).read_text(encoding="utf-8") == (
         "SETNAMES pdm\trms\n30/9-B-43 A\t30_9-B-43_A\n"
     )
@@ -642,29 +659,31 @@ def test_write_pdm_rms_renaming_table_raises_and_preserves_file_when_no_rows_mat
     renaming_table_path = fmu_dir.base_path / renaming_table_relative_path
     renaming_table_path.parent.mkdir(parents=True, exist_ok=True)
     renaming_table_path.write_text("existing renaming table\n", encoding="utf-8")
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(
+            root=[
+                make_wellbore_identifier_mapping(
+                    source_system=DataSystem.pdm,
+                    target_system=DataSystem.simulator,
+                    source_id="30/9-B-43 A",
+                    target_id="B43A",
+                ),
+                make_wellbore_identifier_mapping(
+                    source_system=DataSystem.smda,
+                    target_system=DataSystem.rms,
+                    source_id="NO 30/9-B-21 C",
+                    target_id="30_9-B-21_C",
+                ),
+            ]
+        )
+    )
 
     with pytest.raises(
         ValueError,
         match="No PDM-to-RMS primary wellbore mappings available",
     ):
         mappings_manager.write_pdm_rms_renaming_table(
-            WellboreMappings(
-                root=[
-                    make_wellbore_identifier_mapping(
-                        source_system=DataSystem.pdm,
-                        target_system=DataSystem.simulator,
-                        source_id="30/9-B-43 A",
-                        target_id="B43A",
-                    ),
-                    make_wellbore_identifier_mapping(
-                        source_system=DataSystem.smda,
-                        target_system=DataSystem.rms,
-                        source_id="NO 30/9-B-21 C",
-                        target_id="30_9-B-21_C",
-                    ),
-                ]
-            ),
-            renaming_table_relative_path=renaming_table_relative_path,
+            relative_path=renaming_table_relative_path
         )
 
     assert renaming_table_path.read_text(encoding="utf-8") == (
@@ -679,37 +698,37 @@ def test_write_pdm_rms_renaming_table_raises_and_preserves_file_when_no_rows_mat
             "write_rms_eclipse_csv",
             "csv_relative_path",
             Path("../outside.csv"),
-            "csv_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
         (
             "write_rms_eclipse_csv",
             "csv_relative_path",
             Path("/tmp/outside.csv"),
-            "csv_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
         (
             "write_rms_eclipse_renaming_table",
-            "renaming_table_relative_path",
+            "relative_path",
             Path("../outside.renaming_table"),
-            "renaming_table_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
         (
             "write_rms_eclipse_renaming_table",
-            "renaming_table_relative_path",
+            "relative_path",
             Path("/tmp/outside.renaming_table"),
-            "renaming_table_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
         (
             "write_pdm_rms_renaming_table",
-            "renaming_table_relative_path",
+            "relative_path",
             Path("../outside.renaming_table"),
-            "renaming_table_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
         (
             "write_pdm_rms_renaming_table",
-            "renaming_table_relative_path",
+            "relative_path",
             Path("/tmp/outside.renaming_table"),
-            "renaming_table_relative_path must stay within the project root",
+            "must stay within the project root",
         ),
     ],
 )
@@ -722,13 +741,13 @@ def test_write_methods_raise_for_paths_outside_project_root(
 ) -> None:
     """Write paths must stay within the project root."""
     mappings_manager = MappingsManager(fmu_dir)
+    mappings_manager.update_wellbore_mappings(
+        WellboreMappings(root=[make_wellbore_identifier_mapping()])
+    )
     method = getattr(mappings_manager, method_name)
 
     with pytest.raises(ValueError, match=expected_error):
-        method(
-            WellboreMappings(root=[make_wellbore_identifier_mapping()]),
-            **{path_argument_name: relative_path},
-        )
+        method(**{path_argument_name: relative_path})
 
 
 def test_mappings_manager_diff(
