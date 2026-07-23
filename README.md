@@ -18,15 +18,15 @@ FMU Settings is split across a few repositories:
 ```mermaid
 flowchart LR
     CLI["fmu-settings-cli"]
-    API["fmu-settings-api"]
-    GUI["fmu-settings-gui"]
+    API["fmu-settings-api\nAPI and static-file host"]
+    GUI["fmu-settings-gui\nReact source and packaged assets"]
     LIB["fmu-settings"]
     MODELS["fmu-datamodels"]
 
-    CLI --> API
-    CLI --> GUI
+    CLI -->|starts one application process| API
+    CLI -->|gets packaged assets| GUI
     CLI --> LIB
-    GUI --> API
+    GUI -->|browser API calls| API
     API --> LIB
     LIB --> MODELS
     API --> MODELS
@@ -34,9 +34,9 @@ flowchart LR
 
 - [`fmu-settings`](https://github.com/equinor/fmu-settings) is the core library for reading, writing, and managing `.fmu/` resources.
 - [`fmu-datamodels`](https://github.com/equinor/fmu-datamodels) provides shared Pydantic domain models.
-- [`fmu-settings-api`](https://github.com/equinor/fmu-settings-api) exposes `fmu-settings` through a FastAPI application layer.
-- [`fmu-settings-gui`](https://github.com/equinor/fmu-settings-gui) provides the browser-based user interface.
-- [`fmu-settings-cli`](https://github.com/equinor/fmu-settings-cli) provides the user-facing command line interface, including commands that bootstrap local user state and launch the API and GUI.
+- [`fmu-settings-api`](https://github.com/equinor/fmu-settings-api) exposes `fmu-settings` through a FastAPI application layer and serves the packaged GUI assets.
+- [`fmu-settings-gui`](https://github.com/equinor/fmu-settings-gui) provides the browser-based user interface and packages its static assets.
+- [`fmu-settings-cli`](https://github.com/equinor/fmu-settings-cli) provides the user-facing command line interface, including commands that bootstrap local user state and launch the combined application.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the library architecture and a high-level ecosystem overview.
 

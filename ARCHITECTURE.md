@@ -9,13 +9,13 @@ This page describes the architecture owned by this repository and the high-level
 ```mermaid
 flowchart LR
     CLI["fmu-settings-cli\nTyper launcher"]
-    API["fmu-settings-api\nFastAPI backend"]
-    GUI["fmu-settings-gui\nReact SPA + Python static host"]
+    API["fmu-settings-api\nFastAPI backend and static-file host"]
+    GUI["fmu-settings-gui\nReact SPA and packaged static assets"]
     LIB["fmu-settings\nCore .fmu library"]
     MODELS["fmu-datamodels\nShared Pydantic domain models"]
 
-    CLI -->|starts API and GUI processes\ncreates bootstrap token| API
-    CLI -->|starts static GUI host\nopens browser URL| GUI
+    CLI -->|starts one application process\ncreates bootstrap token| API
+    CLI -->|gets packaged static directory| GUI
     CLI -->|uses init/find/sync/copy helpers| LIB
     CLI -->|loads global configuration models| MODELS
 
@@ -31,9 +31,9 @@ The dependency chain is intentionally layered:
 
 - [`fmu-settings`](https://github.com/equinor/fmu-settings) reads, writes, and manages the resources stored in `.fmu/` directories.
 - [`fmu-datamodels`](https://github.com/equinor/fmu-datamodels) provides the shared vocabulary for masterdata, access, global configuration, and mappings.
-- [`fmu-settings-api`](https://github.com/equinor/fmu-settings-api) wraps `fmu-settings` in a session-oriented application layer and coordinates interaction with external systems.
-- [`fmu-settings-gui`](https://github.com/equinor/fmu-settings-gui) talks to the API and should not edit `.fmu/` files directly.
-- [`fmu-settings-cli`](https://github.com/equinor/fmu-settings-cli) is the user-facing command line interface for bootstrapping user state, launching the API and GUI, and running utility commands.
+- [`fmu-settings-api`](https://github.com/equinor/fmu-settings-api) wraps `fmu-settings` in a session-oriented application layer, coordinates interaction with external systems, and serves the packaged GUI assets.
+- [`fmu-settings-gui`](https://github.com/equinor/fmu-settings-gui) builds and packages the React application, which talks to the API and should not edit `.fmu/` files directly.
+- [`fmu-settings-cli`](https://github.com/equinor/fmu-settings-cli) is the user-facing command line interface for bootstrapping user state, launching the combined application, and running utility commands.
 
 ## Core Library
 
@@ -148,23 +148,21 @@ The main library split is:
 
 The full runtime spans multiple repositories, but `fmu-settings` owns the `.fmu/` directory operations used by the API and CLI.
 
-When a user runs `fmu settings`, `fmu-settings-cli` starts a local application stack around `fmu-settings`:
+When a user runs `fmu settings`, `fmu-settings-cli` starts a local application around `fmu-settings`:
 
 1. The CLI ensures the user-level `.fmu/` directory exists, creating `$HOME/.fmu/` through `init_user_fmu_directory()` when needed.
 2. It creates a short-lived bootstrap token used only to authenticate the browser session startup.
-3. It starts the API process and gives it the bootstrap token and runtime settings.
-4. It starts the GUI static-file host.
-5. It opens the browser on the local GUI URL with the bootstrap token in the URL fragment.
-6. The React app reads the token from the fragment, stores it in browser session storage, and exchanges it for an API session.
-7. The API verifies the bootstrap token, ensures user settings are available, creates or renews a server-side session, and sets an HttpOnly session cookie.
-8. If the command was launched from inside an initialized FMU project, the API locates the nearest project `.fmu/` directory and tries to acquire its lock.
-9. After session setup, the GUI talks to the API with the session cookie, and the API uses `ProjectFMUDirectory` and `UserFMUDirectory` from `fmu-settings` to read and write managed resources.
+3. It gets the packaged React static directory from `fmu-settings-gui` and starts one FastAPI/Uvicorn process with the static directory, bootstrap token, and runtime settings.
+4. It opens the browser on the local application URL with the bootstrap token in the URL fragment.
+5. The React app reads the token from the fragment, stores it in browser session storage, and exchanges it for an API session.
+6. The API verifies the bootstrap token, ensures user settings are available, creates or renews a server-side session, and sets an HttpOnly session cookie.
+7. If the command was launched from inside an initialized FMU project, the API locates the nearest project `.fmu/` directory and tries to acquire its lock.
+8. After session setup, the GUI talks to the API with the session cookie, and the API uses `ProjectFMUDirectory` and `UserFMUDirectory` from `fmu-settings` to read and write managed resources.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant CLI as fmu-settings-cli
-    participant GUIHost as GUI static host
     participant Browser
     participant SPA as React SPA
     participant API as fmu-settings-api
@@ -175,12 +173,12 @@ sequenceDiagram
     User->>CLI: run `fmu settings`
     CLI->>UserFMU: init_user_fmu_directory() if needed
     CLI->>CLI: generate bootstrap auth token
-    CLI->>API: start local API process with token
-    CLI->>GUIHost: start local GUI static-file host
-    CLI->>Browser: open GUI URL with token fragment
+    CLI->>CLI: get packaged GUI static directory
+    CLI->>API: start local application with assets and token
+    CLI->>Browser: open application URL with token fragment
 
-    Browser->>GUIHost: request GUI assets
-    GUIHost-->>Browser: serve React SPA
+    Browser->>API: request GUI assets
+    API-->>Browser: serve React SPA
     Browser->>SPA: load application
     SPA->>SPA: read token from URL fragment
     SPA->>SPA: store token in sessionStorage
