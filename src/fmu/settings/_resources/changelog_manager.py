@@ -6,11 +6,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
-from pydantic import BaseModel
-
 from fmu.settings._resources.log_manager import LogManager
 from fmu.settings.models._enums import ChangeType, FilterType
 from fmu.settings.models.change_info import ChangeInfo
+from fmu.settings.models.diff import ListFieldDiff, ResourceDiff
 from fmu.settings.models.log import Filter, Log, LogFileName
 
 if TYPE_CHECKING:
@@ -39,53 +38,65 @@ class ChangelogManager(LogManager[ChangeInfo]):
         updates: dict[str, Any],
         old_resource_dict: dict[str, Any],
         relative_path: Path,
+        *,
+        structured_diff: list[ResourceDiff] | None = None,
     ) -> None:
-        """Logs the update of a resource to the changelog."""
-        _MISSING_KEY = object()
-        for key, new_value in updates.items():
-            change_type = ChangeType.update
-            if "." in key:
-                old_value = self._get_dot_notation_key(
-                    resource_dict=old_resource_dict, key=key, default=_MISSING_KEY
-                )
-            else:
-                old_value = old_resource_dict.get(key, _MISSING_KEY)
+        """Log descriptions and per-key differences after a resource update.
 
-            if old_value != _MISSING_KEY:
-                old_value_string = (
-                    str(old_value.model_dump())
-                    if isinstance(old_value, BaseModel)
-                    else str(old_value)
-                )
-                new_value_string = (
-                    str(new_value.model_dump())
-                    if isinstance(new_value, BaseModel)
-                    else str(new_value)
-                )
-                change_string = (
-                    f"Updated field '{key}'. Old value: {old_value_string}"
-                    f" -> New value: {new_value_string}"
-                )
-            else:
-                change_type = ChangeType.add
-                new_value_string = (
-                    str(new_value.model_dump())
-                    if isinstance(new_value, BaseModel)
-                    else str(new_value)
-                )
-                change_string = f"Added field '{key}'. New value: {new_value_string}"
-
+        None means no structured comparison was supplied. An empty list means
+        the comparison found no value changes. Overlapping update keys receive
+        each difference once, under the most specific matching key.
+        """
+        grouped_diffs = self._group_update_diffs(updates, structured_diff)
+        missing = object()
+        for key in updates:
+            old_value = self._get_dot_notation_key(old_resource_dict, key, missing)
+            change_type = ChangeType.add if old_value is missing else ChangeType.update
+            verb = "Added" if change_type == ChangeType.add else "Updated"
             change_entry = ChangeInfo(
                 timestamp=datetime.now(UTC),
                 change_type=change_type,
                 user=os.getenv("USER", "unknown"),
                 path=self.fmu_dir.path,
-                change=change_string,
+                change=f"{verb} field '{key}'.",
+                structured_diff=grouped_diffs[key],
                 hostname=socket.gethostname(),
                 file=str(relative_path),
                 key=key,
             )
             self.add_log_entry(change_entry)
+
+    @staticmethod
+    def _group_update_diffs(
+        updates: dict[str, Any], differences: list[ResourceDiff] | None
+    ) -> dict[str, list[ResourceDiff] | None]:
+        """Assign differences to update keys without duplicating batch payloads."""
+        grouped: dict[str, list[ResourceDiff] | None] = {
+            key: None if differences is None else [] for key in updates
+        }
+        if differences is None or not updates:
+            return grouped
+        for diff in differences:
+            if isinstance(diff, ListFieldDiff) and not (
+                diff.added or diff.removed or diff.updated
+            ):
+                continue
+            parents = [
+                key
+                for key in updates
+                if diff.field_path == key or diff.field_path.startswith(f"{key}.")
+            ]
+            children = [key for key in updates if key.startswith(f"{diff.field_path}.")]
+            if parents:
+                key = max(parents, key=len)
+            elif children:
+                key = min(children, key=len)
+            else:
+                key = next(iter(updates))
+            key_diffs = grouped[key]
+            if key_diffs is not None:
+                key_diffs.append(diff)
+        return grouped
 
     def log_merge_to_changelog(
         self: Self, source_path: Path, incoming_path: Path, merged_resources: list[str]

@@ -32,6 +32,7 @@ from fmu.settings._resources.lock_manager import DEFAULT_LOCK_TIMEOUT, LockManag
 from fmu.settings._resources.mappings_manager import MappingsManager
 from fmu.settings.models._enums import ChangeType
 from fmu.settings.models.change_info import ChangeInfo
+from fmu.settings.models.diff import ScalarFieldDiff
 from fmu.settings.models.log import Log
 from fmu.settings.models.mappings import (
     InternalMappings,
@@ -1519,16 +1520,22 @@ def test_fmu_directory_base_sync_dir_dont_sync_ignored_fields(
 
     # First entry should be the cache_max_revision update in fmu_dir
     assert updates["_changelog"][0].key == "cache_max_revisions"
-    assert "Old value: 10 -> New value: 5" in updates["_changelog"][0].change
+    assert updates["_changelog"][0].structured_diff == [
+        ScalarFieldDiff(field_path="cache_max_revisions", before=10, after=5)
+    ]
 
     # Second entry should be the cache_max_revision update from the changelog merge
     assert updates["_changelog"][1].key == "cache_max_revisions"
-    assert "Old value: 10 -> New value: 15" in updates["_changelog"][1].change
+    assert updates["_changelog"][1].structured_diff == [
+        ScalarFieldDiff(field_path="cache_max_revisions", before=10, after=15)
+    ]
     assert updates["_changelog"][1].path == new_fmu_dir.path
 
     # Third entry should be the cache_max_revision update from the config merge
     assert updates["_changelog"][2].key == "cache_max_revisions"
-    assert "Old value: 5 -> New value: 15" in updates["_changelog"][2].change
+    assert updates["_changelog"][2].structured_diff == [
+        ScalarFieldDiff(field_path="cache_max_revisions", before=5, after=15)
+    ]
     assert updates["_changelog"][2].path == fmu_dir.path
 
     # Fourth entry should be the logged merge details
@@ -1547,7 +1554,8 @@ def test_fmu_directory_base_sync_dir_dont_sync_ignored_fields(
 
     # The changelog entry for the update will be merged
     assert updates["_changelog"][4].key == "created_by"
-    assert "Old value: user -> New value: johndoe" in updates["_changelog"][4].change
+    assert updates["_changelog"][4].change == "Updated field 'created_by'."
+    assert updates["_changelog"][4].structured_diff == []
 
 
 def test_fmu_directory_base_get_dir_diff_with_mappings(

@@ -170,7 +170,8 @@ def test_mappings_manager_update_internal_stratigraphy_mappings_writes_to_change
     assert changelog[0].change_type == ChangeType.update
     assert changelog[0].file == "mappings.json"
     assert changelog[0].key == "stratigraphy"
-    assert f"New value: {new_mappings.model_dump()}" in changelog[0].change
+    assert changelog[0].change == "Updated field 'stratigraphy'."
+    assert changelog[0].structured_diff is not None
 
     mappings_manager.update_internal_stratigraphy_mappings(new_mappings)
     mappings_manager.update_internal_stratigraphy_mappings(new_mappings)
@@ -292,7 +293,8 @@ def test_mappings_manager_update_internal_wellbore_mappings_writes_to_changelog(
     assert changelog[0].change_type == ChangeType.update
     assert changelog[0].file == "mappings.json"
     assert changelog[0].key == "wellbore"
-    assert f"New value: {wellbore_mappings.model_dump()}" in changelog[0].change
+    assert changelog[0].change == "Updated field 'wellbore'."
+    assert changelog[0].structured_diff is not None
 
     mappings_manager.update_internal_wellbore_mappings(wellbore_mappings)
     mappings_manager.update_internal_wellbore_mappings(wellbore_mappings)
@@ -456,11 +458,34 @@ def test_mappings_manager_merge_changes(
     assert len(updated_mappings.wellbore) == 2
 
 
-def test_mappings_manager_structured_diff_uses_full_item_identity(
+def test_stratigraphy_target_edit_keeps_mapping_identity(
     fmu_dir: ProjectFMUDirectory,
     stratigraphy_mappings: InternalStratigraphyMappings,
 ) -> None:
-    """Tests stratigraphy list changes are returned as added/removed with __full__."""
+    """A target edit updates one mapping without repeating unchanged mappings."""
+    manager = fmu_dir.mappings
+    manager.update_internal_stratigraphy_mappings(stratigraphy_mappings)
+    changed = stratigraphy_mappings.model_copy(deep=True)
+    cross_system = next(m for m in changed if m.source_system != m.target_system)
+    before = cross_system.model_dump(mode="json")
+    cross_system.target_id = "new target"
+    manager.update_internal_stratigraphy_mappings(changed)
+    differences = fmu_dir.changelog.load(force=True)[-1].structured_diff
+    assert differences is not None and len(differences) == 1
+    diff = differences[0]
+    assert isinstance(diff, ListFieldDiff)
+    assert diff.field_path == "stratigraphy.root"
+    assert diff.added == diff.removed == []
+    assert len(diff.updated) == 1
+    assert diff.updated[0].before == before
+    assert diff.updated[0].after == cross_system.model_dump(mode="json")
+
+
+def test_mappings_manager_structured_diff_detects_added_removed_items(
+    fmu_dir: ProjectFMUDirectory,
+    stratigraphy_mappings: InternalStratigraphyMappings,
+) -> None:
+    """Tests different mapping source identities produce additions and removals."""
     mappings_manager = MappingsManager(fmu_dir)
 
     replacement_mappings = _stratigraphy_mappings("TopViking", "VIKING GP. Top")

@@ -7,6 +7,7 @@ import pandas as pd
 from pydantic import AwareDatetime, BaseModel, Field, field_validator
 
 from fmu.settings.models._enums import ChangeType
+from fmu.settings.models.diff import ResourceDiff
 
 
 class ChangeInfo(BaseModel):
@@ -19,6 +20,7 @@ class ChangeInfo(BaseModel):
     user: str
     path: Path
     change: str
+    structured_diff: list[ResourceDiff] | None = None
     hostname: str
     file: str
     key: str

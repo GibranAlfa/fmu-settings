@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Self
 
@@ -48,11 +47,21 @@ class MappingsManager(PydanticResourceManager[InternalMappings]):
         return Path("mappings.json")
 
     @property
-    def diff_list_keys(self: Self) -> Mapping[str, str]:
+    def diff_list_keys(self: Self) -> Mapping[str, str | tuple[str, ...]]:
         """List field identity keys used for per-item diffing."""
         return {
-            "stratigraphy.root": "__full__",
-            "wellbore.root": "__full__",
+            "stratigraphy.root": (
+                "mapping_type",
+                "source_system",
+                "target_system",
+                "source_id",
+            ),
+            "wellbore.root": (
+                "mapping_type",
+                "source_system",
+                "target_system",
+                "source_id",
+            ),
         }
 
     @property
@@ -81,13 +90,14 @@ class MappingsManager(PydanticResourceManager[InternalMappings]):
         """Update stratigraphy mappings stored in the internal .fmu mappings format."""
         mappings: InternalMappings = self.load() if self.exists else InternalMappings()
 
-        old_mappings_dict = copy.deepcopy(mappings.model_dump())
+        before = mappings.model_copy(deep=True)
         mappings.stratigraphy = strat_mappings
         self.save(mappings)
 
         self.fmu_dir.changelog.log_update_to_changelog(
             updates={"stratigraphy": mappings.stratigraphy},
-            old_resource_dict=old_mappings_dict,
+            old_resource_dict=before.model_dump(),
+            structured_diff=self.get_structured_model_diff(before, self.load()),
             relative_path=self.relative_path,
         )
 
@@ -99,13 +109,14 @@ class MappingsManager(PydanticResourceManager[InternalMappings]):
         """Update wellbore mappings stored in the internal .fmu mappings format."""
         mappings: InternalMappings = self.load() if self.exists else InternalMappings()
 
-        old_mappings_dict = copy.deepcopy(mappings.model_dump())
+        before = mappings.model_copy(deep=True)
         mappings.wellbore = wellbore_mappings
         self.save(mappings)
 
         self.fmu_dir.changelog.log_update_to_changelog(
             updates={"wellbore": mappings.wellbore},
-            old_resource_dict=old_mappings_dict,
+            old_resource_dict=before.model_dump(),
+            structured_diff=self.get_structured_model_diff(before, self.load()),
             relative_path=self.relative_path,
         )
 

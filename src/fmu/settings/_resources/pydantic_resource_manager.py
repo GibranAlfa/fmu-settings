@@ -87,7 +87,7 @@ class PydanticResourceManager(Generic[PydanticResource]):
         return path_exists(self.path)
 
     @property
-    def diff_list_keys(self: Self) -> Mapping[str, str]:
+    def diff_list_keys(self: Self) -> Mapping[str, str | tuple[str, ...]]:
         """Return list field paths and their identity keys used for list diffs."""
         return {}
 
@@ -373,7 +373,7 @@ class PydanticResourceManager(Generic[PydanticResource]):
         return results
 
     def _build_list_item_map(
-        self: Self, items: list[Any], list_key: str
+        self: Self, items: list[Any], list_key: str | tuple[str, ...]
     ) -> dict[object, Any]:
         """Build a lookup map for list diffing using a configured identity key."""
         if list_key == "__full__":
@@ -383,6 +383,14 @@ class PydanticResourceManager(Generic[PydanticResource]):
                 ): item
                 for item in items
             }
+        if isinstance(list_key, tuple):
+            keyed_items: dict[object, Any] = {}
+            for item in items:
+                key = tuple(getattr(item, field) for field in list_key)
+                if key in keyed_items:
+                    raise ValueError(f"Duplicate composite diff identity: {key}")
+                keyed_items[key] = item
+            return keyed_items
         return {getattr(item, list_key): item for item in items}
 
     def get_resource_diff(

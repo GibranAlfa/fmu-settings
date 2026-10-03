@@ -632,14 +632,11 @@ def test_log_update_to_changelog_when_flat_dict(fmu_dir: ProjectFMUDirectory) ->
     expected_log_entries = 2
     assert len(changelog) == expected_log_entries
 
-    expected_change_string = (
-        f"Updated field '{first_key}'. Old value: {first_value}"
-        f" -> New value: {updated_value}"
-    )
+    expected_change_string = f"Updated field '{first_key}'."
     assert changelog[0].change_type == ChangeType.update
     assert changelog[0].change == expected_change_string
 
-    expected_change_string = f"Added field '{added_key}'. New value: {added_value}"
+    expected_change_string = f"Added field '{added_key}'."
     assert changelog[1].change_type == ChangeType.add
     assert expected_change_string == changelog[1].change
 
@@ -677,22 +674,16 @@ def test_log_update_to_changelog_when_nested_dict(
     expected_log_entries = 3
     assert len(changelog) == expected_log_entries
 
-    expected_old_value = str(masterdata_dict["smda"]["country"])
-    expected_change_string = (
-        f"Updated field '{first_key}'. Old value: {expected_old_value}"
-        f" -> New value: {str(updated_country)}"
-    )
+    expected_change_string = f"Updated field '{first_key}'."
 
     assert changelog[0].change_type == ChangeType.update
     assert changelog[0].change == expected_change_string
 
-    expected_change_string = f"Added field '{new_key}'. New value: new_value"
+    expected_change_string = f"Added field '{new_key}'."
     assert changelog[1].change_type == ChangeType.add
     assert expected_change_string == changelog[1].change
 
-    expected_change_string = (
-        f"Added field '{new_nested_key}'. New value: new_nested_value"
-    )
+    expected_change_string = f"Added field '{new_nested_key}'."
     assert changelog[2].change_type == ChangeType.add
     assert expected_change_string == changelog[2].change
 
@@ -725,21 +716,15 @@ def test_log_update_to_changelog_when_none_values(fmu_dir: ProjectFMUDirectory) 
     assert len(changelog) == expected_log_entries
 
     assert changelog[0].change_type == ChangeType.update
-    expected_change_string = (
-        f"Updated field '{first_key}'. Old value: {first_value}"
-        f" -> New value: {str(None)}"
-    )
+    expected_change_string = f"Updated field '{first_key}'."
     assert changelog[0].change == expected_change_string
 
     assert changelog[1].change_type == ChangeType.update
-    expected_change_string = (
-        f"Updated field '{second_key}'. Old value: {str(None)}"
-        f" -> New value: {updated_value}"
-    )
+    expected_change_string = f"Updated field '{second_key}'."
     assert changelog[1].change == expected_change_string
 
     assert changelog[2].change_type == ChangeType.add
-    expected_change_string = f"Added field '{added_key}'. New value: {str(None)}"
+    expected_change_string = f"Added field '{added_key}'."
     assert changelog[2].change_type == ChangeType.add
     assert expected_change_string == changelog[2].change
 
@@ -768,18 +753,12 @@ def test_log_update_to_changelog_when_base_model_values(
 
     assert changelog[0].key == test_update
     assert changelog[0].change_type == ChangeType.update
-    old_value = masterdata_dict["smda"]["stratigraphic_column"]
-    expected_change_string = (
-        f"Updated field '{test_update}'. Old value: {str(old_value)}"
-        f" -> New value: {str(strat_column.model_dump())}"
-    )
+    expected_change_string = f"Updated field '{test_update}'."
     assert expected_change_string == changelog[0].change
 
     assert changelog[1].key == test_add
     assert changelog[1].change_type == ChangeType.add
-    expected_change_string = (
-        f"Added field '{test_add}'. New value: {str(strat_column.model_dump())}"
-    )
+    expected_change_string = f"Added field '{test_add}'."
     assert expected_change_string == changelog[1].change
 
 
